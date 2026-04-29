@@ -1,0 +1,65 @@
+name: Playwright Tests
+
+on:
+  pull_request:
+    branches: [ main ]
+
+# Cancel any in-progress run for the same PR to save CI minutes
+concurrency:
+  group: playwright-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Minimal read-only permissions
+permissions:
+  contents: read
+
+jobs:
+  playwright-tests:
+    name: playwright-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      CI: true
+
+    steps:
+      # Check out the repository code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Set up Node.js LTS with Yarn cache
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: yarn
+
+      # Install dependencies using the frozen lockfile for reproducible builds
+      - name: Install dependencies
+        run: yarn install --immutable --immutable-cache --check-cache
+
+      # Install Playwright browsers along with required OS-level dependencies
+      - name: Install Playwright browsers
+        run: yarn playwright install --with-deps
+
+      # Run all Playwright tests in parallel
+      - name: Run Playwright tests
+        run: yarn playwright test
+
+      # Upload HTML report for review in the GitHub Actions UI
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-html-report
+          path: playwright-report/
+          retention-days: 30
+
+      # Upload traces to help debug failing tests
+      - name: Upload traces
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-traces
+          path: test-results/**/trace*.zip
+          retention-days: 30
