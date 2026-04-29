@@ -9,7 +9,7 @@ concurrency:
   group: playwright-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-# Minimal read-only permissions
+# Top-level permissions (least privilege; job overrides below for Pages publishing)
 permissions:
   contents: read
 
@@ -18,6 +18,13 @@ jobs:
     name: playwright-tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy-pages.outputs.page_url }}
 
     env:
       CI: true
@@ -84,6 +91,33 @@ jobs:
                 ]
               }]
             }'
+
+      - name: Prepare history.json for GitHub Pages
+        if: always() && github.ref == 'refs/heads/main'
+        run: |
+          PREV_HISTORY="[]"
+          if git fetch origin gh-pages --depth=1 2>/dev/null; then
+            PREV_HISTORY=$(git show origin/gh-pages:history.json 2>/dev/null || echo "[]")
+          fi
+          NEW_ENTRY=$(jq -n \
+            --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg sha "${{ github.sha }}" \
+            --arg ref "${{ github.ref }}" \
+            --arg result "${{ job.status }}" \
+            '{ timestamp: $ts, run_url: $run_url, sha: $sha, ref: $ref, result: $result }')
+          echo "$PREV_HISTORY" | jq --argjson entry "$NEW_ENTRY" '. + [$entry]' > playwright-report/history.json
+
+      - name: Upload Pages artifact
+        if: always() && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: playwright-report/
+
+      - name: Deploy to GitHub Pages
+        if: always() && github.ref == 'refs/heads/main'
+        id: deploy-pages
+        uses: actions/deploy-pages@v4
 
   security-scan:
     name: security-scan
